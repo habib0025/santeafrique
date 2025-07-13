@@ -1,0 +1,130 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id          String       @id @default(uuid())
+  email       String       @unique
+  password    String
+  role        Role         @default(DONOR)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  donor       Donor?
+  healthStaff HealthStaff?
+  sessions    Session[]
+
+  @@map("users")
+}
+
+// Ajoutez ces modèles avant ou après le modèle User
+model HealthStaff {
+  id            String @id @default(uuid())
+  userId        String @unique
+  user          User   @relation(fields: [userId], references: [id])
+  licenseNumber String
+  specialty     String
+
+  @@map("health_staff")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  token     String   @unique @db.VarChar(512) // Augmentez la taille
+  expiresAt DateTime
+
+  @@map("sessions")
+}
+
+model Donor {
+  id            String        @id @default(uuid())
+  userId        String        @unique
+  user          User          @relation(fields: [userId], references: [id])
+  bloodType     BloodType
+  lastDonation  DateTime?
+  donations     Donation[]
+  appointments  Appointment[] // Relation ajoutée ici
+  contactPhone  String
+  geoLocation   String?
+  canDonateFrom DateTime?
+
+  @@map("donors")
+}
+
+model Donation {
+  id         String   @id @default(uuid())
+  donorId    String
+  donor      Donor    @relation(fields: [donorId], references: [id])
+  date       DateTime @default(now())
+  quantityML Int      @default(450)
+  centerId   String
+  center     Center   @relation(fields: [centerId], references: [id])
+
+  @@map("donations")
+}
+
+model Center {
+  id           String        @id @default(uuid())
+  name         String
+  location     String
+  geoLocation  String
+  bloodStock   BloodStock[]
+  donations    Donation[]
+  appointments Appointment[] // Relation ajoutée ici
+
+  @@map("centers")
+}
+
+model BloodStock {
+  id        String    @id @default(uuid())
+  centerId  String
+  center    Center    @relation(fields: [centerId], references: [id])
+  bloodType BloodType
+  quantity  Int       @default(0)
+
+  @@map("blood_stocks")
+}
+
+enum Role {
+  DONOR
+  HEALTH_STAFF
+  STS_ADMIN
+  SYSTEM_ADMIN
+}
+
+enum BloodType {
+  A_POSITIVE
+  A_NEGATIVE
+  B_POSITIVE
+  B_NEGATIVE
+  AB_POSITIVE
+  AB_NEGATIVE
+  O_POSITIVE
+  O_NEGATIVE
+}
+
+model Appointment {
+  id        String            @id @default(uuid())
+  donorId   String
+  donor     Donor             @relation(fields: [donorId], references: [id])
+  centerId  String
+  center    Center            @relation(fields: [centerId], references: [id])
+  date      DateTime
+  status    AppointmentStatus @default(PENDING)
+  createdAt DateTime          @default(now())
+
+  @@map("appointments")
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
