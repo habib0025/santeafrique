@@ -1,9 +1,16 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const cron = require('node-cron');
+
 const authRoutes = require('./routes/auth.routes');
 const centerRoutes = require('./routes/center.routes');
 const appointmentRoutes = require('./routes/appointment.routes');
+const { checkStocks } = require('./services/bloodAlert');
+const donationRoutes = require('./routes/donation.routes');
+const bloodDonationRoutes = require('./routes/bloodDonation.routes');
+
+
 
 
 
@@ -17,6 +24,10 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/centers', centerRoutes);
 app.use('/api/appointments', appointmentRoutes);
+app.use('/api/donations', donationRoutes);
+app.use('/api/donations', bloodDonationRoutes);
+
+
 
 
 
@@ -33,8 +44,15 @@ app.use((req, res) => {
 // Gestion des erreurs globales
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ error: 'Erreur serveur' });
+  res.status(500).json({
+    error: err.message,
+    stack: err.stack
+  });
 });
+
+
+cron.schedule('0 9-17 * * *', checkStocks);
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

@@ -13,6 +13,8 @@ router.get('/', async (req, res) => {
   res.json(centers);
 });
 
+
+
 // POST /api/centers - Création (Admin seulement)
 router.post('/', auth(['SYSTEM_ADMIN']), async (req, res) => {
   const { name, location, geoLocation } = req.body;
@@ -22,6 +24,21 @@ router.post('/', auth(['SYSTEM_ADMIN']), async (req, res) => {
   });
 
   res.status(201).json(center);
+});
+
+router.get('/', async (req, res) => {
+    const centers = await prisma.center.findMany({
+      include: { bloodStock: true }
+    });
+    res.json(centers);
+  });
+
+router.get('/:id', async (req, res) => {
+    const center = await prisma.center.findUnique({
+      where: { id: req.params.id },
+      include: { bloodStock: true }
+    });
+    res.json(center);
 });
 
 module.exports = router;

@@ -113,3 +113,7 @@ ALTER TABLE `appointments` ADD CONSTRAINT `appointments_donorId_fkey` FOREIGN KE
 
 -- AddForeignKey
 ALTER TABLE `appointments` ADD CONSTRAINT `appointments_centerId_fkey` FOREIGN KEY (`centerId`) REFERENCES `centers`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- Dans MySQL
+GRANT ALL PRIVILEGES ON sante_afrique_prod.* TO 'user'@'%' REQUIRE SSL;
+FLUSH PRIVILEGES;

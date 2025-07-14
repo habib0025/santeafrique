@@ -128,3 +128,37 @@ enum AppointmentStatus {
   CANCELLED
   COMPLETED
 }
+
+model BloodStock {
+  id          String    @id @default(uuid())
+  centerId    String
+  center      Center    @relation(fields: [centerId], references: [id])
+  bloodType   BloodType
+  quantity    Int       @default(0)
+  criticalThreshold Int @default(3) // Seuil d'alerte
+  lastUpdated DateTime  @default(now())
+  
+  @@unique([centerId, bloodType]) // Un combo unique par centre
+  @@map("blood_stocks")
+  @@index([bloodType, quantity]) // Pour les requêtes rapides
+
+}
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["referentialIntegrity"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+  referentialIntegrity = "foreignKeys"
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  action    String   // "CREATE_DONATION"
+  userId    String?  // Qui a fait l'action
+  ipAddress String?
+  createdAt DateTime @default(now())
+}

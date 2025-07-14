@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environnement
+.env
+.env.local
+.env*.local
+
+# Prisma
+/generated
+/prisma/migrations/dev*
+
+# Database
+*.db
+*.sqlite
+*-journal
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+
+# Système
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Build
+dist/
+build/
+.next/
+.expo/
+
+# Mobile
+*.apk
+*.aab
+*.keystore
+
+# Tests
+coverage/
+.nyc_output/
+
+# OS
+Thumbs.db
