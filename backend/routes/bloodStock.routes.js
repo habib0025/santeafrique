@@ -45,3 +45,14 @@ router.get('/alerts', auth(['SYSTEM_ADMIN']), async (req, res) => {
   
   res.json(criticalStocks);
 });
+
+router.get('/critical-levels', authMiddleware, async (req, res) => {
+    const criticalStocks = await prisma.bloodStock.findMany({
+      where: {
+        quantity: { lte: prisma.bloodStock.fields.criticalThreshold }
+      },
+      include: { center: true }
+    });
+    res.json(criticalStocks);
+});
+  

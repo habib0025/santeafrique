@@ -39,4 +39,19 @@ router.get('/me', authenticate(['DONOR']), async (req, res) => {
   res.json(donor);
 });
 
+router.get('/compatible-donors/:bloodType', authMiddleware, async (req, res) => {
+    const { bloodType } = req.params;
+    const compatibleTypes = getCompatibleBloodTypes(bloodType); // Implement blood type compatibility logic
+    
+    const donors = await prisma.donor.findMany({
+      where: { 
+        bloodType: { in: compatibleTypes },
+        canDonateFrom: { lte: new Date() }
+      },
+      include: { user: true }
+    });
+    
+    res.json(donors);
+  });
+
 module.exports = router;

@@ -9,9 +9,7 @@ const appointmentRoutes = require('./routes/appointment.routes');
 const { checkStocks } = require('./services/bloodAlert');
 const donationRoutes = require('./routes/donation.routes');
 const bloodDonationRoutes = require('./routes/bloodDonation.routes');
-
-
-
+const campaignRoutes = require('./routes/campaign.routes');
 
 
 const app = express();
@@ -26,6 +24,7 @@ app.use('/api/centers', centerRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/donations', donationRoutes);
 app.use('/api/donations', bloodDonationRoutes);
+app.use('/api/campaigns', campaignRoutes);
 
 
 

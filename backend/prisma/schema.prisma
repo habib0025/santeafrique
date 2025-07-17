@@ -1,94 +1,12 @@
 datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL")
+  provider             = "mysql"
+  url                  = env("DATABASE_URL")
+  referentialIntegrity = "foreignKeys"
 }
 
 generator client {
-  provider = "prisma-client-js"
-}
-
-model User {
-  id          String       @id @default(uuid())
-  email       String       @unique
-  password    String
-  role        Role         @default(DONOR)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  donor       Donor?
-  healthStaff HealthStaff?
-  sessions    Session[]
-
-  @@map("users")
-}
-
-// Ajoutez ces modèles avant ou après le modèle User
-model HealthStaff {
-  id            String @id @default(uuid())
-  userId        String @unique
-  user          User   @relation(fields: [userId], references: [id])
-  licenseNumber String
-  specialty     String
-
-  @@map("health_staff")
-}
-
-model Session {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  token     String   @unique @db.VarChar(512) // Augmentez la taille
-  expiresAt DateTime
-
-  @@map("sessions")
-}
-
-model Donor {
-  id            String        @id @default(uuid())
-  userId        String        @unique
-  user          User          @relation(fields: [userId], references: [id])
-  bloodType     BloodType
-  lastDonation  DateTime?
-  donations     Donation[]
-  appointments  Appointment[] // Relation ajoutée ici
-  contactPhone  String
-  geoLocation   String?
-  canDonateFrom DateTime?
-
-  @@map("donors")
-}
-
-model Donation {
-  id         String   @id @default(uuid())
-  donorId    String
-  donor      Donor    @relation(fields: [donorId], references: [id])
-  date       DateTime @default(now())
-  quantityML Int      @default(450)
-  centerId   String
-  center     Center   @relation(fields: [centerId], references: [id])
-
-  @@map("donations")
-}
-
-model Center {
-  id           String        @id @default(uuid())
-  name         String
-  location     String
-  geoLocation  String
-  bloodStock   BloodStock[]
-  donations    Donation[]
-  appointments Appointment[] // Relation ajoutée ici
-
-  @@map("centers")
-}
-
-model BloodStock {
-  id        String    @id @default(uuid())
-  centerId  String
-  center    Center    @relation(fields: [centerId], references: [id])
-  bloodType BloodType
-  quantity  Int       @default(0)
-
-  @@map("blood_stocks")
+  provider        = "prisma-client-js"
+  previewFeatures = ["referentialIntegrity"]
 }
 
 enum Role {
@@ -109,6 +27,109 @@ enum BloodType {
   O_NEGATIVE
 }
 
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum CampaignStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum RecordType {
+  // Add your record types here
+  GENERAL
+  LAB_RESULT
+  PRESCRIPTION
+}
+
+model User {
+  id               String          @id @default(uuid())
+  email            String          @unique
+  password         String
+  role             Role            @default(DONOR)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  donor            Donor?
+  healthStaff      HealthStaff?
+  sessions         Session[]
+  createdCampaigns Campaign[]      @relation("UserCampaigns")
+  volunteerCampaigns Campaign[] @relation("CampaignVolunteers")
+  medicalRecords   MedicalRecord[] @relation("UserMedicalRecords")
+  auditLogs        AuditLog[]
+  notifications Notification[]
+  @@index([role]) 
+}
+
+model HealthStaff {
+  id            String @id @default(uuid())
+  userId        String @unique
+  user          User   @relation(fields: [userId], references: [id])
+  licenseNumber String
+  specialty     String
+
+  @@map("health_staff")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  token     String   @unique @db.VarChar(512)
+  expiresAt DateTime
+
+  @@map("sessions")
+}
+
+model Donor {
+  id            String        @id @default(uuid())
+  userId        String        @unique
+  user          User          @relation(fields: [userId], references: [id])
+  bloodType     BloodType
+  lastDonation  DateTime?
+  donations     Donation[]
+  appointments  Appointment[]
+  contactPhone  String
+  geoLocation   String?
+  canDonateFrom DateTime?
+}
+
+model Donation {
+  id         String   @id @default(uuid())
+  donorId    String
+  donor      Donor    @relation(fields: [donorId], references: [id])
+  date       DateTime @default(now())
+  quantityML Int      @default(450)
+  centerId   String
+  center     Center   @relation(fields: [centerId], references: [id])
+  bloodType  BloodType // Derived from donor, but stored for historical accuracy
+  status     DonationStatus @default(COMPLETED)
+  @@index([donorId])   // Speeds up "Get all donations by donor"
+  @@index([centerId])  // Speeds up "Get all donations by center"
+  @@index([date])
+}
+
+enum DonationStatus {
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+model Center {
+  id           String        @id @default(uuid())
+  name         String
+  location     String
+  geoLocation  String
+  bloodStock   BloodStock[]
+  donations    Donation[]
+  appointments Appointment[]
+}
+
 model Appointment {
   id        String            @id @default(uuid())
   donorId   String
@@ -118,47 +139,117 @@ model Appointment {
   date      DateTime
   status    AppointmentStatus @default(PENDING)
   createdAt DateTime          @default(now())
-
-  @@map("appointments")
-}
-
-enum AppointmentStatus {
-  PENDING
-  CONFIRMED
-  CANCELLED
-  COMPLETED
+  confirmedAt    DateTime?
+  cancelledAt   DateTime?
+  completedAt   DateTime?
+  @@index([donorId])
+  @@index([centerId])
+  @@index([date])      // Critical for calendar views
+  @@index([status])
 }
 
 model BloodStock {
-  id          String    @id @default(uuid())
-  centerId    String
-  center      Center    @relation(fields: [centerId], references: [id])
-  bloodType   BloodType
-  quantity    Int       @default(0)
-  criticalThreshold Int @default(3) // Seuil d'alerte
-  lastUpdated DateTime  @default(now())
-  
-  @@unique([centerId, bloodType]) // Un combo unique par centre
+  id                String    @id @default(uuid())
+  centerId          String
+  center            Center    @relation(fields: [centerId], references: [id])
+  bloodType         BloodType
+  quantity          Int       @default(0)
+  criticalThreshold Int       @default(3)
+  lastUpdated       DateTime  @default(now())
+
+  @@unique([centerId, bloodType])
+  @@index([bloodType, quantity])
   @@map("blood_stocks")
-  @@index([bloodType, quantity]) // Pour les requêtes rapides
-
-}
-
-generator client {
-  provider = "prisma-client-js"
-  previewFeatures = ["referentialIntegrity"]
-}
-
-datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL")
-  referentialIntegrity = "foreignKeys"
 }
 
 model AuditLog {
   id        Int      @id @default(autoincrement())
-  action    String   // "CREATE_DONATION"
-  userId    String?  // Qui a fait l'action
+  action    String
+  userId    String? // Qui a fait l'action
+  user      User?    @relation(fields: [userId], references: [id])
   ipAddress String?
   createdAt DateTime @default(now())
 }
+
+model MedicalRecord {
+  id        Int        @id @default(autoincrement())
+  patientId String
+  patient   User       @relation("UserMedicalRecords", fields: [patientId], references: [id])
+  type      RecordType
+  data      Json
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Campaign {
+  id          String         @id @default(uuid())
+  title       String         @db.VarChar(100)
+  description String?
+  startDate   DateTime
+  endDate     DateTime
+  locationId  Int
+  location    Location       @relation(fields: [locationId], references: [id])
+  targetUnits Int            @default(100)
+  createdById String
+  createdBy   User           @relation("UserCampaigns", fields: [createdById], references: [id])
+  status      CampaignStatus @default(PLANNED)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  imageUrl       String?
+  targetBloodTypes CampaignTargetBloodType[]
+  currentDonors  Int           @default(0)
+  volunteers User[] @relation("CampaignVolunteers")
+  notifications Notification[]
+  @@index([status])
+  @@index([startDate, endDate])
+}
+
+model CampaignTargetBloodType {
+  id         String    @id @default(uuid())
+  campaign   Campaign  @relation(fields: [campaignId], references: [id])
+  campaignId String
+  bloodType  BloodType
+}
+
+model Location {
+  id          Int        @id @default(autoincrement())
+  name        String     @db.VarChar(100)
+  address     String
+  city        String
+  country     String     @default("Senegal")
+  coordinates Json?
+  campaigns   Campaign[]
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  type      NotificationType
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id])
+
+}
+
+enum NotificationType {
+  DONATION_REMINDER
+  CAMPAIGN_UPDATE
+  APPOINTMENT_ALERT
+  STOCK_ALERT
+}
+
+model SmsLog {
+  id        String   @id @default(uuid())
+  recipient String
+  message   String
+  status    String   // ATTEMPTED/DELIVERED/FAILED
+  externalId String? // Twilio SID
+  sentAt    DateTime?
+  error     String?
+  createdAt DateTime @default(now())
+}
+

@@ -6,76 +6,79 @@ const auth = require('../middleware/auth');
 const prisma = new PrismaClient();
 const router = express.Router();
 
-// Schéma de validation
+// Enhanced validation schema
 const donationSchema = z.object({
   donorId: z.string().uuid(),
   centerId: z.string().uuid(),
-  quantityML: z.number().int().min(350).max(500), // 350-500ml par don
-  bloodType: z.enum([
-    'A_POSITIVE',
-    'A_NEGATIVE',
-    'B_POSITIVE',
-    'B_NEGATIVE',
-    'AB_POSITIVE',
-    'AB_NEGATIVE',
-    'O_POSITIVE',
-    'O_NEGATIVE'
-  ]),
-  donationDate: z.coerce.date().max(new Date()) // Pas de date future
+  quantityML: z.number().int().min(350).max(500),
+  // Remove bloodType from input - should come from donor record
+  donationDate: z.coerce.date().max(new Date())
 });
 
-// Enregistrement d'un don
+// Record donation with enhanced safety
 router.post('/', auth(['HEALTH_STAFF', 'SYSTEM_ADMIN']), async (req, res) => {
   try {
-    // 1. Validation
-    const validatedData = donationSchema.parse(req.body);
-    const { donorId, centerId, quantityML, bloodType } = validatedData;
+    // 1. Validate input
+    const { donorId, centerId, quantityML } = donationSchema.parse(req.body);
 
-    // 2. Vérification de l'éligibilité
+    // 2. Verify donor exists and get blood type
     const donor = await prisma.donor.findUnique({
       where: { id: donorId },
-      select: { canDonateFrom: true }
+      select: {
+        bloodType: true,
+        canDonateFrom: true,
+        user: { select: { id: true } },
+        contactPhone: true
+      }
     });
 
-    if (new Date() < donor.canDonateFrom) {
+    if (!donor) {
+      return res.status(404).json({ error: "Donor not found" });
+    }
+
+    // 3. Check eligibility
+    if (donor.canDonateFrom > new Date()) {
       return res.status(400).json({
-        error: "Don non autorisé",
-        nextDonationDate: donor.canDonateFrom
+        error: "Donor not eligible",
+        nextEligibleDate: donor.canDonateFrom
       });
     }
 
-    // 3. Transaction atomique
+    // 4. Atomic transaction
     const result = await prisma.$transaction(async (tx) => {
-      // a. Création du don
+      // a. Create donation
       const donation = await tx.donation.create({
         data: {
           donorId,
           centerId,
           quantityML,
+          bloodType: donor.bloodType, // From donor record
           date: new Date()
         }
       });
 
-      // b. Mise à jour du stock
+      // b. Update blood stock (1 unit = 450ml)
+      const units = Math.round(quantityML / 450);
       await tx.bloodStock.upsert({
         where: {
           centerId_bloodType: {
             centerId,
-            bloodType
+            bloodType: donor.bloodType
           }
         },
         create: {
           centerId,
-          bloodType,
-          quantity: Math.floor(quantityML / 450) // 1 unité = ~450ml
+          bloodType: donor.bloodType,
+          quantity: units,
+          criticalThreshold: 3
         },
         update: {
-          quantity: { increment: Math.floor(quantityML / 450) },
+          quantity: { increment: units },
           lastUpdated: new Date()
         }
       });
 
-      // c. Mise à jour délai prochain don (8 semaines)
+      // c. Update donor cooldown (8 weeks)
       await tx.donor.update({
         where: { id: donorId },
         data: {
@@ -87,9 +90,17 @@ router.post('/', auth(['HEALTH_STAFF', 'SYSTEM_ADMIN']), async (req, res) => {
       return donation;
     });
 
-    // 4. Notification
-    await sendDonationConfirmation(donorId, result.id);
+    // 5. Send notifications
+    await prisma.notification.create({
+      data: {
+        userId: donor.user.id,
+        title: "Donation Recorded",
+        message: `Thank you for donating ${quantityML}ml of blood!`,
+        type: "DONATION_CONFIRMATION"
+      }
+    });
 
+    // 6. Return success
     res.status(201).json(result);
 
   } catch (error) {
@@ -97,80 +108,58 @@ router.post('/', auth(['HEALTH_STAFF', 'SYSTEM_ADMIN']), async (req, res) => {
     
     if (error instanceof z.ZodError) {
       return res.status(400).json({
-        error: "Données invalides",
+        error: "Validation failed",
         details: error.issues
       });
     }
 
     res.status(500).json({ 
-      error: "Erreur lors de l'enregistrement",
-      debugId: req.requestId
+      error: "Internal server error",
+      requestId: req.id // Assuming you have request ID middleware
     });
   }
 });
 
-// Récupération historique des dons
-router.get('/', auth(['HEALTH_STAFF']), async (req, res) => {
-  const { centerId, donorId, page = 1 } = req.query;
+// Get donations with filters
+router.get('/', auth(['HEALTH_STAFF', 'SYSTEM_ADMIN']), async (req, res) => {
+  const { centerId, donorId, page = 1, limit = 20 } = req.query;
   
-  const where = {};
-  if (centerId) where.centerId = centerId;
-  if (donorId) where.donorId = donorId;
+  try {
+    const where = {};
+    if (centerId) where.centerId = centerId;
+    if (donorId) where.donorId = donorId;
 
-  const donations = await prisma.donation.findMany({
-    where,
-    include: {
-      donor: { select: { user: { select: { email: true } } } },
-      center: { select: { name: true } }
-    },
-    orderBy: { date: 'desc' },
-    take: 20,
-    skip: (page - 1) * 20
-  });
+    const [donations, total] = await Promise.all([
+      prisma.donation.findMany({
+        where,
+        include: {
+          donor: {
+            select: {
+              user: { select: { email: true } },
+              bloodType: true
+            }
+          },
+          center: { select: { name: true, location: true } }
+        },
+        orderBy: { date: 'desc' },
+        take: parseInt(limit),
+        skip: (parseInt(page) - 1) * parseInt(limit)
+      }),
+      prisma.donation.count({ where })
+    ]);
 
-  res.json(donations);
-});
-
-// Statistiques des dons
-router.get('/stats', auth(['SYSTEM_ADMIN']), async (req, res) => {
-  const stats = await prisma.$queryRaw`
-    SELECT 
-      DATE_TRUNC('month', date) as month,
-      bloodType,
-      SUM(quantityML) as totalML,
-      COUNT(*) as donationsCount
-    FROM Donation
-    JOIN Donor ON Donation.donorId = Donor.id
-    GROUP BY month, bloodType
-    ORDER BY month DESC
-  `;
-
-  res.json(stats);
-});
-
-// Fonction utilitaire - Envoi confirmation
-async function sendDonationConfirmation(donorId, donationId) {
-  const donor = await prisma.donor.findUnique({
-    where: { id: donorId },
-    include: { user: true }
-  });
-
-  await prisma.notification.create({
-    data: {
-      userId: donor.userId,
-      type: 'DONATION_CONFIRMATION',
-      message: `Merci pour votre don #${donationId}`,
-      metadata: { donationId }
-    }
-  });
-
-  // Envoi SMS (exemple avec Twilio)
-  if (donor.contactPhone) {
-    await sendSMS(
-      donor.contactPhone,
-      `Merci pour votre don. Prochain don possible le ${new Date(donor.canDonateFrom).toLocaleDateString()}`
-    );
+    res.json({
+      data: donations,
+      meta: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch donations" });
   }
-}
+});
 
 module.exports = router;
